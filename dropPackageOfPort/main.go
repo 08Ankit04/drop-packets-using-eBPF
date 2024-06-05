@@ -5,6 +5,8 @@ import (
     "os"
     "os/signal"
     "syscall"
+    "net"
+
     "github.com/cilium/ebpf"
     "github.com/cilium/ebpf/link"
     "github.com/cilium/ebpf/rlimit"
@@ -50,8 +52,15 @@ func main() {
 
     // Update the eBPF map with the port to block
     blockPortMap := coll.Maps["block_port"]
-    key := uint32(0)
-    if err := blockPortMap.Update(key, port, ebpf.UpdateAny); err != nil {
+    if blockPortMap == nil {
+        fmt.Fprintf(os.Stderr, "Failed to find map: block_port\n")
+        os.Exit(1)
+    }
+
+    key := uint16(80) // example port number to block
+    value := uint8(1) // example value
+
+    if err := blockPortMap.Update(key, value, ebpf.UpdateAny); err != nil {
         fmt.Fprintf(os.Stderr, "Failed to update map: %v\n", err)
         os.Exit(1)
     }
@@ -63,11 +72,18 @@ func main() {
 		os.Exit(1)
 	}
 
+    // Get the network interface index
+    iface, err := net.InterfaceByName("enX0")
+    if err != nil {
+        fmt.Fprintf(os.Stderr, "Failed to get interface by name: %v\n", err)
+        os.Exit(1)
+    }
+
 	link1, err := link.AttachXDP(link.XDPOptions{
-		Program:   prog,
-		Interface: 1, // Change to the interface index you want to attach to
-		Flags:     1 | 2 | 4, // These values correspond to FlagXDPAttachMode, FlagXDPAttachModeSKBMode, and FlagXDPAttachModeDriverMode respectively
-	})
+        Program:   prog,
+        Interface: iface.Index,
+        Flags:     link.XDPGenericMode, // Adjust the flags as necessary
+    })
 	
     if err != nil {
         fmt.Fprintf(os.Stderr, "Failed to attach XDP program: %v\n", err)
